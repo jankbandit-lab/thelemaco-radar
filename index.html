@@ -361,7 +361,7 @@ function buildBotbar(){
 }
 function buildLegend(){$('#legend').innerHTML=ORDER.map(c=>{const o=COLORS[c];return `<div class="lg" style="--lc:${cssColor(c)}"><div class="nm">${o.nombre}</div><div class="im">${o.impacto}</div><div class="cr">${o.criterio}</div></div>`;}).join('');}
 function buildFilters(){
-  const cat=$('#fCat');cat.innerHTML='<span class="glabel">Carpetas</span>'+`<span class="chip ${state.fCat==='all'?'on':''}" data-k="all">Todas</span>`+CATS.map(k=>`<span class="chip ${k==='ACCIONES'?'star':''} ${state.fCat===k?'on':''}" data-k="${k}">${k}</span>`).join('');
+  const cat=$('#fCat');cat.innerHTML='<span class="glabel">Carpetas</span>'+`<span class="chip ${state.fCat==='all'?'on':''}" data-k="all">Todas</span>`+CATS.map(k=>`<span class="chip ${state.fCat===k?'on':''}" data-k="${k}">${k}</span>`).join('');
   const col=$('#fColor');col.innerHTML='<span class="glabel">Impacto</span>'+`<span class="chip ${state.fColor==='all'?'on':''}" data-c="all">Todo</span>`+ORDER.map(c=>`<span class="chip ${state.fColor===c?'on':''}" data-c="${c}" style="${state.fColor===c?`background:${cssColor(c)};border-color:${cssColor(c)};color:#05070b`:`color:${cssColor(c)}`}">${COLORS[c].nombre}</span>`).join('');
   cat.querySelectorAll('[data-k]').forEach(e=>e.onclick=()=>{state.fCat=e.dataset.k;renderMosaic()});
   col.querySelectorAll('[data-c]').forEach(e=>e.onclick=()=>{state.fColor=e.dataset.c;renderMosaic()});
@@ -479,7 +479,7 @@ async function loadNews(fresh){const btn=$('#btnRefresh');btn.disabled=true;$('#
     const j=await r.json();const lim=mapNews(j.news||[]);if(!lim.length)throw new Error('sin datos');
     if(!lim.some(n=>n.hero))lim.sort((a,b)=>ORDER.indexOf(a.color)-ORDER.indexOf(b.color))[0].hero=true;
     state.news=lim;state.fColor='all';state.fCat='all';buildTicker();buildBotbar();buildHero();renderMosaic();
-    $('#updated').textContent='Actualizado · '+new Date().toLocaleString('es-ES');toast('✓ '+lim.length+' noticias en vivo');
+    $('#updated').textContent='Actualizado · '+new Date().toLocaleString('es-ES');
   }catch(err){$('#updated').textContent='Semilla · backend no disponible';toast('⚠ Usando datos semilla. Configura /api/news en Vercel. ('+err.message+')');}
   finally{clearInterval(t);$('#loader').classList.remove('show');btn.disabled=false;}
 }
