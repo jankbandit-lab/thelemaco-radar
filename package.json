@@ -1,0 +1,8 @@
+{
+  "name": "thelemaco-radar",
+  "version": "1.0.0",
+  "private": true,
+  "description": "THELÉMACO · Radar de impacto de mercado — noticias clasificadas por IA + cotizaciones en vivo",
+  "engines": { "node": ">=18" },
+  "dependencies": { "rss-parser": "^3.13.0" }
+}
