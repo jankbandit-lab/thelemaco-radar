@@ -3,23 +3,26 @@
 const Parser = require('rss-parser');
 const parser = new Parser({ timeout: 5000, headers: { 'User-Agent': 'Mozilla/5.0 (Thelemaco)' } });
 
-// Solo 4 feeds rápidos y fiables (reducido para caber en 30s)
-const FEEDS = [
+// Feeds rápidos y fiables, repartidos en dos mitades (cada llamada cabe en 30s)
+const FEEDS_A = [
   { url: 'https://www.cnbc.com/id/100003114/device/rss/rss.html',    source: 'CNBC',       domain: 'cnbc.com',       cat: 'ACCIONES' },
   { url: 'https://www.cnbc.com/id/20910258/device/rss/rss.html',     source: 'CNBC Economy',domain: 'cnbc.com',       cat: 'MACRO' },
+];
+const FEEDS_B = [
   { url: 'https://www.coindesk.com/arc/outboundfeeds/rss/',           source: 'CoinDesk',   domain: 'coindesk.com',   cat: 'CRIPTO' },
   { url: 'https://finance.yahoo.com/news/rssindex',                   source: 'Yahoo Finance',domain:'finance.yahoo.com',cat:'ACCIONES' },
 ];
+const FEEDS = [...FEEDS_A, ...FEEDS_B]; // compatibilidad si se pide todo
 
 const TTL = 20 * 60 * 1000; // 20 min caché (ahorra llamadas IA)
-let cache = { time: 0, data: null };
+const cache = { 1: { time: 0, data: null }, 2: { time: 0, data: null }, full: { time: 0, data: null } };
 
 function clean(s, n = 220) {
   return (s || '').replace(/<[^>]+>/g, ' ').replace(/&[a-z#0-9]+;/gi, ' ').replace(/\s+/g, ' ').trim().slice(0, n);
 }
 
-async function collectFeeds() {
-  const results = await Promise.allSettled(FEEDS.map(f =>
+async function collectFeeds(feeds) {
+  const results = await Promise.allSettled(feeds.map(f =>
     parser.parseURL(f.url).then(r => ({ f, r }))
   ));
   const items = [];
@@ -45,9 +48,9 @@ async function collectFeeds() {
   return dedup.slice(0, 18);
 }
 
-function buildPrompt(items) {
+function buildPrompt(items, top = 10) {
   const lista = items.map((it, i) => `#${i} [${it.source}/${it.cat_hint}] ${it.title}`).join('\n');
-  return `Analista financiero: de estas noticias elige las 10 más relevantes para un trader de acciones US. Para cada una devuelve JSON con:
+  return `Analista financiero: de estas noticias elige las ${top} más relevantes para un trader de acciones US. Para cada una devuelve JSON con:
 idx(número #),titular(español España),resumen(1 frase ES),titular_original,idioma(EN/ES),color(rojo|amarillo|violeta|azul|blanco),categoria(ACCIONES|MACRO|MATERIAS|CRIPTO|GEOPOLITICA),img(2 palabras EN para foto),activos(8-15 objetos {t:ticker,k:acc|etf|idx|mat|fx|cri|bono,d:+|-|~}),analisis(2 frases ES).
 hero:true en la más importante. SOLO JSON: {"noticias":[...]}
 NOTICIAS:
@@ -71,7 +74,7 @@ async function callHaiku(prompt) {
       'anthropic-version': '2023-06-01'
     },
     body: JSON.stringify({
-      model: process.env.LLM_MODEL || 'claude-haiku-4-5-20241001',
+      model: process.env.LLM_MODEL || 'claude-haiku-4-5-20251001',
       max_tokens: 4000,
       messages: [{ role: 'user', content: prompt }]
     })
@@ -83,19 +86,27 @@ async function callHaiku(prompt) {
 
 module.exports = async (req, res) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
-  const fresh = (req.url || '').includes('fresh=1');
-  if (!fresh && cache.data && Date.now() - cache.time < TTL) {
-    return res.json(cache.data);
+  const url = req.url || '';
+  const fresh = url.includes('fresh=1');
+  // Determinar mitad: ?half=1 → feeds A (5 noticias) · ?half=2 → feeds B · sin half → todo
+  const half = /half=2/.test(url) ? 2 : (/half=1/.test(url) ? 1 : 0);
+  const key = half === 0 ? 'full' : half;
+  const feeds = half === 1 ? FEEDS_A : half === 2 ? FEEDS_B : FEEDS;
+  const top = half === 0 ? 10 : 5;
+
+  const c = cache[key];
+  if (!fresh && c.data && Date.now() - c.time < TTL) {
+    return res.json(c.data);
   }
   try {
     if (!process.env.ANTHROPIC_API_KEY) throw new Error('Falta ANTHROPIC_API_KEY en Vercel Environment Variables');
 
     // 1. RSS en paralelo (~3-5s)
-    const items = await collectFeeds();
+    const items = await collectFeeds(feeds);
     if (!items.length) throw new Error('Sin items RSS');
 
     // 2. Haiku clasifica (~3-8s, es muy rápido)
-    const txt = await callHaiku(buildPrompt(items));
+    const txt = await callHaiku(buildPrompt(items, top));
     const json = parseJSON(txt);
 
     // 3. Fusionar con fuentes reales (sin og:image → el frontend lo resuelve)
@@ -112,8 +123,8 @@ module.exports = async (req, res) => {
       };
     }).filter(n => n.titular && n.url);
 
-    const data = { news: noticias, updated: new Date().toISOString(), count: noticias.length };
-    cache = { time: Date.now(), data };
+    const data = { news: noticias, half, updated: new Date().toISOString(), count: noticias.length };
+    cache[key] = { time: Date.now(), data };
     return res.json(data);
   } catch (e) {
     return res.status(500).json({ error: String(e.message || e) });
